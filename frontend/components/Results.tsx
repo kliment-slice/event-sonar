@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Calendar, MapPin, Clock, User, Tag, Info, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Calendar, MapPin, Clock, User, Tag, Info, ExternalLink, Pause, Play, Volume2 } from 'lucide-react'
 import EventSonar from '@/components/EventSonar'
 
 export default function Results() {
@@ -19,6 +19,14 @@ export default function Results() {
   const [loading, setLoading] = useState<boolean>(true)
   const [cleaningContent, setCleaningContent] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [isPlaying, setIsPlaying] = useState<boolean>(false)
+  const [audioLoading, setAudioLoading] = useState<boolean>(false)
+  const [audioError, setAudioError] = useState<boolean>(false)
+  const [audioErrorMessage, setAudioErrorMessage] = useState<string | null>(null)
+  
+  // Use a ref for the actual HTML audio element
+  const audioElementRef = useRef<HTMLAudioElement | null>(null)
 
   // Log search parameters for debugging
   useEffect(() => {
@@ -71,6 +79,7 @@ export default function Results() {
         setCleaningContent(true);
         try {
           console.log("Calling /api/groq-clean with eventId:", eventId);
+          
           const cleanResponse = await fetch('/api/groq-clean', {
             method: 'POST',
             headers: {
@@ -90,6 +99,64 @@ export default function Results() {
           const cleanData = await cleanResponse.json();
           console.log("Received clean data:", cleanData);
           setSummary(cleanData.summary);
+          
+          // Now call the PlayHT endpoint to convert the summary to speech
+          if (cleanData.summary) {
+            console.log("Calling /api/playht with summary and eventId:", eventId);
+            setAudioLoading(true);
+            try {
+              const playhtResponse = await fetch('/api/playht', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                  summary: cleanData.summary,
+                  eventId 
+                }),
+              });
+              
+              console.log("PlayHT response status:", playhtResponse.status);
+              
+              if (!playhtResponse.ok) {
+                const playhtErrorText = await playhtResponse.text();
+                console.error("PlayHT error response:", playhtErrorText);
+                console.warn("Failed to convert summary to speech, but continuing with text summary");
+                setAudioError(true);
+                setAudioErrorMessage("Failed to generate audio: " + playhtResponse.statusText);
+              } else {
+                const playhtData = await playhtResponse.json();
+                console.log("Received PlayHT data:", playhtData);
+                
+                if (playhtData.status === "success" && playhtData.audio_url) {
+                  // Get the backend URL from environment variables or use default
+                  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+                  
+                  // Set the direct URL to the audio file on the backend
+                  const audioFileUrl = `${backendUrl}/audio/${eventId}.wav`;
+                  console.log("Setting audio URL to:", audioFileUrl);
+                  setAudioUrl(audioFileUrl);
+                  setAudioError(false);
+                  setAudioErrorMessage(null);
+                } else if (playhtData.status === "error") {
+                  console.error("PlayHT error:", playhtData.message);
+                  setAudioError(true);
+                  setAudioErrorMessage(playhtData.message || "Failed to generate audio");
+                } else {
+                  console.error("Invalid PlayHT response:", playhtData);
+                  setAudioError(true);
+                  setAudioErrorMessage("Invalid response from audio service");
+                }
+              }
+            } catch (playhtErr) {
+              console.error('Error calling PlayHT:', playhtErr);
+              // Continue with text summary even if speech conversion fails
+              setAudioError(true);
+              setAudioErrorMessage("Error generating audio: " + (playhtErr instanceof Error ? playhtErr.message : "Unknown error"));
+            } finally {
+              setAudioLoading(false);
+            }
+          }
         } catch (cleanErr) {
           console.error('Error cleaning content:', cleanErr);
           // We still have the raw content, so don't set an error
@@ -107,6 +174,40 @@ export default function Results() {
     fetchEventDetails();
   }, [eventId]);
 
+  // Toggle play/pause
+  const togglePlayPause = () => {
+    if (!audioElementRef.current) return;
+    
+    if (isPlaying) {
+      console.log("Pausing audio");
+      audioElementRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      console.log("Playing audio");
+      try {
+        const playPromise = audioElementRef.current.play();
+        
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch(err => {
+              console.error('Failed to play audio:', err);
+              setIsPlaying(false);
+              setAudioError(true);
+              setAudioErrorMessage("Failed to play audio");
+            });
+        }
+      } catch (err) {
+        console.error('Error playing audio:', err);
+        setIsPlaying(false);
+        setAudioError(true);
+        setAudioErrorMessage("Error playing audio");
+      }
+    }
+  };
+
   // Log image URL for debugging
   useEffect(() => {
     if (imageUrl) {
@@ -122,6 +223,14 @@ export default function Results() {
   }, [imageUrl]);
 
   const handleBack = () => {
+    // Stop audio if playing when navigating away
+    if (audioElementRef.current) {
+      try {
+        audioElementRef.current.pause();
+      } catch (err) {
+        console.error('Error pausing audio:', err);
+      }
+    }
     router.push('/')
   }
 
@@ -134,6 +243,43 @@ export default function Results() {
     
     return null
   }
+
+  // Safe audio element creation
+  const renderAudioElement = () => {
+    if (!audioUrl) return null;
+    
+    return (
+      <div className="mt-4">
+        {/* Wrap just the audio element in try-catch */}
+        {(() => {
+          try {
+            return (
+              <audio 
+                ref={audioElementRef}
+                src={audioUrl}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
+                onError={(e) => {
+                  // Just log the error and set state, but don't crash
+                  console.error('Audio element error:', {});  // Empty object to avoid serialization issues
+                  setIsPlaying(false);
+                  setAudioError(true);
+                  setAudioErrorMessage("Failed to load audio file");
+                }}
+                controls
+                className="w-full"
+              />
+            );
+          } catch (err) {
+            // If there's an error rendering the audio element, just return null
+            console.error('Error rendering audio element:', err);
+            return null;
+          }
+        })()}
+      </div>
+    );
+  };
 
   return (
     <motion.div
@@ -216,7 +362,7 @@ export default function Results() {
               <div className="mb-4 p-4 bg-stone-700/50 rounded-lg">
                 <h1 className="text-2xl font-bold text-white mb-2">{eventName}</h1>
                 
-                {/* Event summary */}
+                {/* Event summary with audio controls */}
                 {cleaningContent ? (
                   <div className="flex items-center justify-center py-4">
                     <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-500 mr-3"></div>
@@ -224,10 +370,52 @@ export default function Results() {
                   </div>
                 ) : summary ? (
                   <div className="bg-stone-800/70 p-4 rounded-lg mb-4">
-                    <h3 className="text-lg font-semibold text-cyan-400 mb-2">Event Summary</h3>
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-semibold text-cyan-400">Event Summary</h3>
+                      
+                      {/* Audio controls */}
+                      {audioLoading ? (
+                        <div className="flex items-center">
+                          <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-cyan-500 mr-2"></div>
+                          <span className="text-xs text-cyan-400">Generating audio...</span>
+                        </div>
+                      ) : audioError ? (
+                        <div className="text-xs text-amber-400">
+                          <span>Audio unavailable</span>
+                          {audioErrorMessage && (
+                            <span className="block text-xs text-amber-400/70 mt-1">
+                              {audioErrorMessage.includes("Rate limit") ? "Rate limit exceeded" : "Error loading audio"}
+                            </span>
+                          )}
+                        </div>
+                      ) : audioUrl ? (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={togglePlayPause}
+                          className="p-2 bg-cyan-500/20 rounded-full text-cyan-400 hover:bg-cyan-500/30 transition-colors flex items-center gap-2"
+                        >
+                          {isPlaying ? (
+                            <>
+                              <Pause size={16} />
+                              <span className="text-xs">Pause</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play size={16} />
+                              <span className="text-xs">Play</span>
+                            </>
+                          )}
+                        </motion.button>
+                      ) : null}
+                    </div>
+                    
                     <div className="text-white">
                       {summary}
                     </div>
+                    
+                    {/* Audio element - safely rendered */}
+                    {renderAudioElement()}
                   </div>
                 ) : null}
                 

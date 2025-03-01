@@ -11,13 +11,14 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import pathlib
 import json
+import uuid
 
 load_dotenv()
 
 URL_TO_SCRAPE = "https://lu.ma/sxsw"
 app = FastAPI()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "llama-3.3-70b-specdec"
 WHISPER = "whisper-large-v3-turbo"
 th = Toolhouse(api_key=os.getenv("TOOLHOUSE_API_KEY"))
 # Configure CORS
@@ -38,6 +39,8 @@ UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
 # Create directory for event details
 EVENT_DETAILS_DIR = pathlib.Path("../events/event-details")
 EVENT_DETAILS_DIR.mkdir(exist_ok=True, parents=True)
+AUDIO_DIR = pathlib.Path("../audio")
+AUDIO_DIR.mkdir(exist_ok=True, parents=True)
 
 # Function to save events to the common events.json file
 def save_events_to_common_file(events):
@@ -630,4 +633,95 @@ async def create_summary(request: dict):
         return {
             "status": "error",
             "message": f"Failed to clean event content: {str(e)}"
+        }
+    
+@app.post("/playht")
+async def text_to_speech(request: dict):
+    """Convert event summary to speech using PlayHT with pyht library"""
+    try:
+        # Get the summary and event ID from the request
+        summary = request.get("summary")
+        event_id = request.get("eventId")
+        
+        if not summary:
+            return {
+                "status": "error",
+                "message": "Missing summary parameter"
+            }
+            
+        if not event_id:
+            return {
+                "status": "error",
+                "message": "Missing eventId parameter"
+            }
+        
+        print(f"Converting summary to speech for event {event_id}")
+        
+        # Ensure audio directory exists
+        AUDIO_DIR.mkdir(exist_ok=True, parents=True)
+        
+        # Use just the event_id for the filename (no UUID)
+        audio_filename = f"{event_id}.wav"
+        audio_file_path = AUDIO_DIR / audio_filename
+        
+        # Initialize the PlayHT client
+        from pyht import Client
+        from pyht.client import TTSOptions
+        
+        playht_user_id = os.getenv("PLAY_HT_USER_ID")
+        playht_api_key = os.getenv("PLAY_HT_API_KEY")
+        
+        if not playht_user_id or not playht_api_key:
+            return {
+                "status": "error",
+                "message": "PlayHT API credentials not configured"
+            }
+        
+        client = Client(
+            user_id=playht_user_id,
+            api_key=playht_api_key,
+        )
+        
+        # Use a pre-defined voice
+        options = TTSOptions(voice="s3://voice-cloning-zero-shot/775ae416-49bb-4fb6-bd45-740f205d20a1/jennifersaad/manifest.json")
+        
+        print(f"Using PlayHT voice: jennifersaad")
+        print(f"Saving audio to: {audio_file_path}")
+        
+        # Generate and save the audio file
+        with open(str(audio_file_path), "wb") as audio_file:
+            for chunk in client.tts(summary, options, voice_engine="PlayDialog-http"):
+                audio_file.write(chunk)
+        
+        # Verify the file was saved
+        if not os.path.exists(str(audio_file_path)):
+            print(f"File was not saved to {audio_file_path}")
+            return {
+                "status": "error",
+                "message": "Failed to save audio file to disk",
+                "attempted_path": str(audio_file_path)
+            }
+        
+        file_size = os.path.getsize(str(audio_file_path))
+        print(f"Audio file saved to: {audio_file_path} (size: {file_size} bytes)")
+        
+        # Create a relative URL path for the frontend
+        relative_audio_path = f"/audio/{audio_filename}"
+        
+        return {
+            "status": "success",
+            "message": "Text converted to speech successfully",
+            "event_id": event_id,
+            "audio_url": relative_audio_path,
+            "voice": "jennifersaad",
+            "file_size": file_size
+        }
+    
+    except Exception as e:
+        import traceback
+        print(f"ERROR IN PLAYHT: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            "status": "error",
+            "message": f"Failed to convert text to speech: {str(e)}"
         }
