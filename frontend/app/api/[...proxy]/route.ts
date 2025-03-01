@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Remove the edge runtime declaration
-// export const runtime = 'edge'
-
 export async function GET(
   request: NextRequest,
   context: { params: { proxy: string[] } }
@@ -20,26 +17,31 @@ export async function GET(
     
     console.log(`Proxying GET request to: ${url}`);
     
+    // Add timeout to prevent long-hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
-    })
+      signal: controller.signal
+    }).finally(() => clearTimeout(timeoutId));
     
-    if (!response.ok) {
-      console.error(`Backend returned status: ${response.status}`);
-      return NextResponse.json(
-        { error: `Backend returned status: ${response.status}` }, 
-        { status: response.status }
-      );
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error('API error:', error);
+    
+    // Check if it's a connection refused error
+    if (error instanceof Error && error.message.includes('ECONNREFUSED')) {
+      return NextResponse.json({ 
+        error: 'Backend service is not available. Please check if the API server is running.' 
+      }, { status: 503 });
     }
     
-    const data = await response.json()
-    return NextResponse.json(data)
-  } catch (error) {
-    console.error('API error:', error)
-    return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 });
   }
 }
 
@@ -55,6 +57,10 @@ export async function POST(
     
     console.log(`Proxying POST request to: ${url}`);
     
+    // Add timeout to prevent long-hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     // Check content type to handle different types of requests
     const contentType = request.headers.get('content-type') || '';
     
@@ -66,7 +72,8 @@ export async function POST(
       response = await fetch(url, {
         method: 'POST',
         body: formData,
-      });
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
     } else {
       // Handle JSON data
       const body = await request.json();
@@ -76,21 +83,22 @@ export async function POST(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
-      });
-    }
-    
-    if (!response.ok) {
-      console.error(`Backend returned status: ${response.status}`);
-      return NextResponse.json(
-        { error: `Backend returned status: ${response.status}` }, 
-        { status: response.status }
-      );
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
     }
     
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
     console.error('API error:', error);
+    
+    // Check if it's a connection refused error
+    if (error instanceof Error && error.message.includes('ECONNREFUSED')) {
+      return NextResponse.json({ 
+        error: 'Backend service is not available. Please check if the API server is running.' 
+      }, { status: 503 });
+    }
+    
     return NextResponse.json({ error: 'Failed to post data' }, { status: 500 });
   }
 }
