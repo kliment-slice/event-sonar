@@ -50,4 +50,6 @@ python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 &\n\
 cd /app/frontend && npm start' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
+ENV NEXT_PUBLIC_API_URL=http://localhost:8000
+
 CMD ["/entrypoint.sh"]

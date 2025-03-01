@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Get the backend URL from environment variables
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     
     // Construct the URL to the backend endpoint
     const url = `${backendUrl}/playht`;

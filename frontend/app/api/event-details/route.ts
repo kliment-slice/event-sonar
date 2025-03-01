@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     }
     
     // Get the backend URL from environment variables
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const url = `${backendUrl}/event-details?id=${encodeURIComponent(id)}`;
     
     console.log("Forwarding request to:", url);

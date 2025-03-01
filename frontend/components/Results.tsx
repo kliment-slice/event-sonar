@@ -130,7 +130,7 @@ export default function Results() {
                 
                 if (playhtData.status === "success" && playhtData.audio_url) {
                   // Get the backend URL from environment variables or use default
-                  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+                  const backendUrl = process.env.NEXT_PUBLIC_NEXT_PUBLIC_API_URL || 'http://localhost:8000';
                   
                   // Set the direct URL to the audio file on the backend
                   const audioFileUrl = `${backendUrl}/audio/${eventId}.wav`;
