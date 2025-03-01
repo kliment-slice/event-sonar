@@ -13,6 +13,20 @@ export async function GET(
     const searchParams = request.nextUrl.searchParams.toString();
     const queryString = searchParams ? `?${searchParams}` : '';
     
+    // Check if backend is available before making the request
+    try {
+      await fetch(`${backendUrl}/health-check`, { 
+        method: 'HEAD',
+        signal: AbortSignal.timeout(1000) 
+      });
+    } catch (error: any) {
+      console.warn(`Backend health check failed: ${error.message}`);
+      return NextResponse.json({ 
+        error: 'Backend service is not available',
+        details: `Failed to connect to ${backendUrl}. Please ensure the API server is running and accessible.`
+      }, { status: 503 });
+    }
+    
     const url = `${backendUrl}/${endpoint}${queryString}`
     
     console.log(`Proxying GET request to: ${url}`);
@@ -53,6 +67,21 @@ export async function POST(
     const params = context.params;
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
     const endpoint = params.proxy.join('/')
+    
+    // Check if backend is available before making the request
+    try {
+      await fetch(`${backendUrl}/health-check`, { 
+        method: 'HEAD',
+        signal: AbortSignal.timeout(1000) 
+      });
+    } catch (error: any) {
+      console.warn(`Backend health check failed: ${error.message}`);
+      return NextResponse.json({ 
+        error: 'Backend service is not available',
+        details: `Failed to connect to ${backendUrl}. Please ensure the API server is running and accessible.`
+      }, { status: 503 });
+    }
+    
     const url = `${backendUrl}/${endpoint}`
     
     console.log(`Proxying POST request to: ${url}`);

@@ -2,12 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    // Use environment variable with fallback for local development
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     return [
       {
         source: '/api/:path*',
-        destination: `${backendUrl}/api/:path*`,
+        destination: 'http://0.0.0.0:8000/api/:path*',
       },
     ];
   },
@@ -18,10 +16,10 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true,
+    unoptimized: true, // This will disable image optimization
   },
   experimental: {
-    serverActions: {},
+    serverActions: {}, // Empty object instead of true to match the expected type
   }
 };
 
