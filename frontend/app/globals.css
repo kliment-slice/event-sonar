@@ -22,3 +22,20 @@ body {
   background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* In your global.css */
+.clip-corner-bl {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+.flash-effect {
+  animation: flash 0.3s;
+}
+
+@keyframes flash {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(255, 58, 94, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(255, 58, 94, 0.8);
+  }
+}
