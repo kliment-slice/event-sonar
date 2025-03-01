@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import SearchBar from '@/components/SearchBar'
 import EventRoller from '@/components/EventRoller'
+import MicButton from '@/components/MicButton'
+import EventSonar from '@/components/EventSonar'
 import { motion } from 'framer-motion'
-import { Mic, Radar } from 'lucide-react'
 
 export default function VibeCheckCard() {
   const [searchText, setSearchText] = useState('')
@@ -38,12 +39,6 @@ export default function VibeCheckCard() {
     setSearchText(eventName)
   }
 
-  const handleMicClick = () => {
-    // Placeholder for microphone functionality
-    // You would integrate with browser's speech recognition API or similar here
-    alert('Voice search feature coming soon!')
-  }
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -60,13 +55,9 @@ export default function VibeCheckCard() {
           className="absolute top-0 left-0 w-full h-2" 
         ></div>
         
-        <h1 className="text-3xl sm:text-4xl font-black tracking-wide text-cyan-500/80 rounded-full bg-stone-700/50 text-center mb-3 sm:mb-4">
-          <span className="relative inline-flex items-center justify-center gap-2">
-            <Radar size={32} className="text-cyan-500/80" /> EVENT SONAR
-          </span>
-        </h1>
+        <EventSonar />
         
-        <div className="space-y-3 sm:space-y-4">
+        <div className="space-y-3 sm:space-y-4 pb-4">
           <p className="text-center font-light tracking-wide text-stone-300 text-base sm:text-lg">
             Discover your perfect <span className="font-bold text-xl sm:text-2xl tracking-tight">SXSW</span> experience
           </p>
@@ -77,19 +68,8 @@ export default function VibeCheckCard() {
             onSubmit={handleSearch} 
             isLoading={isLoading} 
           />
-          <div className="flex flex-col items-center pt-1 sm:pt-2">
-            <motion.div 
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleMicClick}
-              className="cursor-pointer"
-            >
-              <div className="rounded-full p-2 bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500 shadow-lg hover:shadow-xl transition-all duration-300">
-                <Mic size={48} className="text-white" />
-              </div>
-            </motion.div>
-          </div>
-          <p className="text-xs text-center font-light tracking-tight text-stone-400 mb-1 sm:mb-2">Or tap the mic to find one</p>
+          
+          <MicButton />
         </div>
           
         <div className="relative flex-grow overflow-hidden">

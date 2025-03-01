@@ -1,9 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from toolhouse import Toolhouse
 from groq import Groq
 import os
+from typing import Optional
+import shutil
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -16,6 +18,7 @@ URL_TO_SCRAPE = "https://lu.ma/sxsw"
 app = FastAPI()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 MODEL = "llama-3.3-70b-versatile"
+WHISPER = "whisper-large-v3-turbo"
 th = Toolhouse(api_key=os.getenv("TOOLHOUSE_API_KEY"))
 # Configure CORS
 app.add_middleware(
@@ -30,6 +33,11 @@ app.add_middleware(
 EVENTS_DIR = pathlib.Path("../events")
 EVENTS_DIR.mkdir(exist_ok=True, parents=True)
 EVENTS_FILE = EVENTS_DIR / "events.json"
+UPLOAD_DIR = pathlib.Path("../voice-input")
+UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
+# Create directory for event details
+EVENT_DETAILS_DIR = pathlib.Path("../events/event-details")
+EVENT_DETAILS_DIR.mkdir(exist_ok=True, parents=True)
 
 # Function to save events to the common events.json file
 def save_events_to_common_file(events):
@@ -58,105 +66,122 @@ def load_events_from_common_file():
 async def scrape_events():
     """Scrape events from URL_TO_SCRAPE using BeautifulSoup and save to common events.json file"""
     try:
-        # Send a GET request to the URL
-        response = requests.get(URL_TO_SCRAPE)
-        response.raise_for_status()  # Raise an exception for HTTP errors
+        all_events = []
         
-        # Parse the HTML content
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Find all event containers - updated selector based on the provided HTML structure
-        event_containers = soup.find_all('div', class_=lambda c: c and 'content-card hoverable' in c)
-        
-        events = []
-        for container in event_containers:
-            event = {}
+        # Scrape each day from March 1 to March 16
+        for day in range(1, 16):
+            # Format the date for the URL
+            date_str = f"2024-03-{day:02d}"
+            day_url = f"{URL_TO_SCRAPE}?date={date_str}"
             
-            # Extract title - updated selector
-            title_elem = container.find('h3')
-            event['title'] = title_elem.text.strip() if title_elem else "No title found"
+            print(f"Scraping events for {date_str} from {day_url}")
             
-            # Extract hosts - updated selector
-            host_elem = container.find('div', class_=lambda c: c and 'text-ellipses nowrap' in c)
-            if host_elem:
-                host_text = host_elem.text.strip()
-                if host_text.startswith('By '):
-                    host_text = host_text[3:]  # Remove 'By ' prefix
-                event['hosts'] = host_text
-            else:
-                event['hosts'] = "No host found"
+            # Send a GET request to the URL for this specific day
+            response = requests.get(day_url)
+            response.raise_for_status()  # Raise an exception for HTTP errors
             
-            # Extract date and time - updated selector
-            time_elem = container.find('div', class_=lambda c: c and 'event-time' in c)
-            date_elem = None  # Date might not be directly visible in the card
+            # Parse the HTML content
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Try to extract date from the page structure or use current date
-            current_date = datetime.now().strftime("%B %d, %Y")
+            # Find all event containers
+            event_containers = soup.select('div.jsx-2926199791.card-wrapper')
             
-            if time_elem:
-                time_text = time_elem.text.strip()
-                event['date_time'] = f"{current_date}, {time_text}"
-            else:
-                event['date_time'] = current_date
+            # Also find all date sections to associate events with their dates
+            date_sections = soup.select('div.jsx-129232405.timeline-section.sticky-always')
+            date_map = {}
             
-            # Extract location - updated selector
-            location_elem = container.find('div', class_=lambda c: c and 'attribute' in c)
-            if location_elem:
-                location_text_elem = location_elem.find('div', class_=lambda c: c and 'text-ellipses' in c and 'nowrap' not in c)
-                if location_text_elem:
-                    event['location'] = location_text_elem.text.strip()
+            # Extract dates from date sections
+            for section in date_sections:
+                date_elem = section.select_one('div.jsx-3877914823.date')
+                if date_elem:
+                    date_text = date_elem.text.strip()
+                    # Find all event cards that follow this date section until the next date section
+                    next_elements = section.find_next_siblings()
+                    for elem in next_elements:
+                        if 'timeline-section' in elem.get('class', []):
+                            break
+                        cards = elem.select('div.jsx-2926199791.card-wrapper')
+                        for card in cards:
+                            date_map[card] = date_text
+            
+            day_events = []
+            for container in event_containers:
+                event = {}
+                
+                # Extract title
+                title_elem = container.select_one('h3')
+                event['title'] = title_elem.text.strip() if title_elem else "No title found"
+                
+                # Extract hosts
+                host_elem = container.select_one('div.text-ellipses.nowrap')
+                if host_elem:
+                    host_text = host_elem.text.strip()
+                    if host_text.startswith('By '):
+                        host_text = host_text[3:]  # Remove 'By ' prefix
+                    event['hosts'] = host_text
                 else:
-                    event['location'] = "No location found"
-            else:
-                event['location'] = "No location found"
-            
-            # Extract image URL - updated selector
-            img_elem = container.find('img')
-            if img_elem and 'src' in img_elem.attrs:
-                # Get the highest resolution image from srcset if available
-                if 'srcset' in img_elem.attrs:
-                    srcset = img_elem['srcset']
-                    # Parse srcset to get the highest resolution image
-                    srcset_parts = srcset.split(',')
-                    if srcset_parts:
-                        # Get the last part which typically has the highest resolution
-                        highest_res = srcset_parts[-1].strip().split(' ')[0]
-                        event['image_url'] = highest_res
-                    else:
-                        event['image_url'] = img_elem['src']
+                    event['hosts'] = "No host found"
+                
+                # Extract date and time
+                time_elem = container.select_one('div.jsx-749509546 span')
+                
+                # Get date from our date_map or use the current day we're scraping
+                event_date = date_map.get(container, f"March {day}")
+                
+                if time_elem:
+                    time_text = time_elem.text.strip()
+                    event['date_time'] = f"{event_date}, {time_text}"
                 else:
-                    event['image_url'] = img_elem['src']
-            else:
-                event['image_url'] = "No image found"
+                    event['date_time'] = event_date
+                
+                # Extract location
+                location_elem = container.select_one('div.jsx-3575689807.text-ellipses:not(.nowrap)')
+                event['location'] = location_elem.text.strip() if location_elem else "No location found"
+                
+                # Extract image URL
+                img_elem = container.select_one('img')
+                if img_elem and 'src' in img_elem.attrs:
+                    img_src = img_elem['src']
+                    # Fix relative URLs by adding base URL
+                    if not img_src.startswith(('http://', 'https://')):
+                        img_src = f"https://lu.ma{img_src if img_src.startswith('/') else '/' + img_src}"
+                    event['image_url'] = img_src
+                else:
+                    event['image_url'] = "No image found"
+                
+                # Extract event URL
+                link_elem = container.select_one('a.event-link')
+                if link_elem and 'href' in link_elem.attrs:
+                    event['event_url'] = 'https://lu.ma' + link_elem['href'] if link_elem['href'].startswith('/') else link_elem['href']
+                else:
+                    event['event_url'] = "No URL found"
+                
+                # Extract price if available
+                price_elem = container.select_one('div.jsx-1669635041.pill-label')
+                if price_elem:
+                    event['price'] = price_elem.text.strip()
+                else:
+                    event['price'] = "Free or not specified"
+                
+                day_events.append(event)
             
-            # Extract event URL - updated selector
-            link_elem = container.find('a', class_='event-link')
-            if link_elem and 'href' in link_elem.attrs:
-                event['event_url'] = 'https://lu.ma' + link_elem['href'] if link_elem['href'].startswith('/') else link_elem['href']
-            else:
-                event['event_url'] = "No URL found"
-            
-            # Extract price if available
-            price_elem = container.find('div', class_=lambda c: c and 'pill-label' in c)
-            if price_elem:
-                event['price'] = price_elem.text.strip()
-            else:
-                event['price'] = "Free or not specified"
-            
-            events.append(event)
+            print(f"Found {len(day_events)} events for {date_str}")
+            all_events.extend(day_events)
         
         # Save the scraped events to the common file
-        common_file = save_events_to_common_file(events)
+        common_file = save_events_to_common_file(all_events)
         
         return {
-            "message": f"Successfully scraped {len(events)} events from {URL_TO_SCRAPE}",
-            "events": events,
+            "message": f"Successfully scraped {len(all_events)} events from {URL_TO_SCRAPE} for March 1-16",
+            "events": all_events,
             "saved_to": str(common_file)
         }
     
     except Exception as e:
+        import traceback
         return {
             "message": f"Error scraping events: {str(e)}",
+            "traceback": traceback.format_exc(),
             "events": []
         }
 
@@ -239,6 +264,103 @@ async def get_events():
         "events": simplified_events
     }
 
+@app.post("/toolhouse-event")
+async def toolhouse_event(request: dict):
+    """Extract detailed information from a single Luma event URL using Toolhouse and Groq"""
+    try:
+        # Get the event URL from the request
+        event_url = request.get("url")
+        if not event_url:
+            return {
+                "status": "error",
+                "message": "Missing event URL in request"
+            }
+        
+        # Ensure the URL is a Luma event URL
+        if not event_url.startswith("https://lu.ma/"):
+            event_url = f"https://lu.ma/{event_url}" if not event_url.startswith("http") else event_url
+        
+        # Extract the event ID from the URL
+        event_id = event_url.split("/")[-1].split("?")[0]
+        
+        print(f"Using Toolhouse to scrape: {event_url}")
+        print(f"Event ID: {event_id}")
+        
+        # Ensure the event details directory exists
+        EVENT_DETAILS_DIR.mkdir(exist_ok=True, parents=True)
+        
+        # Get the tools from Toolhouse - using the "fire" bundle for web scraping
+        tools = th.get_tools("fire")
+        
+        # Prepare messages for the model - simple and direct
+        messages = [
+            {"role": "user", "content": f"Visit and scrape the event page at {event_url}. Extract all text content including title, description, date, time, location, and other details."}
+        ]
+        
+        # Call Groq with Toolhouse tools
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto"
+        )
+        
+        # Run the tools based on the model's response
+        tool_results = th.run_tools(response)
+        
+        # Get the content directly from the tool results
+        content = ""
+        for result in tool_results:
+            if result.get("role") == "tool":
+                tool_content = result.get("content", "")
+                if tool_content and len(tool_content) > len(content):
+                    content = tool_content
+        
+        # If we didn't get content from the tools, use a simple approach
+        if not content:
+            simple_response = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": f"Describe the event at {event_url} in detail."}],
+                temperature=0.1,
+                max_tokens=4000,
+            )
+            content = simple_response.choices[0].message.content if simple_response.choices else "No content found"
+        
+        # Save the extracted content to a text file named after the event ID
+        event_file_path = EVENT_DETAILS_DIR / f"{event_id}.txt"
+        
+        with open(str(event_file_path), "w", encoding="utf-8") as f:
+            f.write(f"Event URL: {event_url}\n")
+            f.write(f"Extracted on: {datetime.now().isoformat()}\n\n")
+            f.write(content)
+        
+        # Verify the file was saved
+        file_exists = os.path.exists(str(event_file_path))
+        
+        # Create event data for the response
+        event_data = {
+            "url": event_url,
+            "event_id": event_id,
+            "extracted_content": content,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        return {
+            "status": "success",
+            "message": "Successfully extracted event information",
+            "event_data": event_data,
+            "saved_to": str(event_file_path),
+            "file_exists": file_exists
+        }
+    
+    except Exception as e:
+        import traceback
+        print(f"ERROR IN TOOLHOUSE-EVENT: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Error extracting event information: {str(e)}"
+        }
+    
 @app.get("/toolhouse")
 async def toolhouse_scrape():
     """Search for events based on user query"""
@@ -306,7 +428,206 @@ async def toolhouse_scrape():
         "tool_results": serializable_tool_results
     }
 
-@app.get("/test")
-async def test_endpoint():
-    """Simple test endpoint that returns a success message"""
-    return {"message": "WORKS!"}
+@app.post("/groq-whisper")
+async def transcribe_audio(request: dict):
+    """Transcribe audio file using Groq's Whisper model"""
+    try:
+        hash_id = request.get("hash_id")
+        if not hash_id:
+            return {"status": "error", "message": "Missing hash_id parameter"}
+        
+        # Construct the file path - use the file already saved by /voice-input
+        file_path = UPLOAD_DIR / f"{hash_id}.webm"
+        
+        if not file_path.exists():
+            return {
+                "status": "error", 
+                "message": f"Audio file not found: {file_path}"
+            }
+        
+        # Read the audio file
+        with open(file_path, "rb") as audio_file:
+            # Call Groq's Whisper API for transcription
+            response = client.audio.transcriptions.create(
+                model=WHISPER,
+                file=audio_file,
+                language="en"  # Specify language if known, or let the model detect
+            )
+        
+        # Extract the transcription text
+        transcription = response.text if hasattr(response, 'text') else str(response)
+        
+        return {
+            "status": "success",
+            "message": "Audio transcribed successfully",
+            "hash_id": hash_id,
+            "text": transcription
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "message": f"Error transcribing audio: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
+
+@app.post("/voice-input")
+async def process_voice_input(
+    audio_file: UploadFile = File(...),
+    hash_id: str = Form(...)
+):
+    try:
+        # Ensure upload directory exists
+        UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
+        
+        # Save the file
+        file_path = UPLOAD_DIR / f"{hash_id}.webm"
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(audio_file.file, buffer)
+        
+        return {
+            "status": "success",
+            "message": "Voice input received and saved",
+            "hash_id": hash_id,
+            "file_path": str(file_path)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.get("/event-details")
+async def get_event_details(id: str = None):
+    """Get event details from saved text file"""
+    try:
+        # If no ID is provided, return an error
+        if not id:
+            return {
+                "status": "error",
+                "message": "Missing required parameter: id"
+            }
+        
+        # Check if we have a text file for this event
+        event_file_path = EVENT_DETAILS_DIR / f"{id}.txt"
+        
+        if not event_file_path.exists():
+            return {
+                "status": "error",
+                "message": f"No event details found for ID: {id}"
+            }
+        
+        # Read the text file
+        with open(event_file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # Parse the content to extract metadata
+        lines = content.split("\n")
+        url = ""
+        timestamp = ""
+        
+        # Extract URL and timestamp from the first lines
+        for i, line in enumerate(lines):
+            if line.startswith("Event URL:"):
+                url = line.replace("Event URL:", "").strip()
+            elif line.startswith("Extracted on:"):
+                timestamp = line.replace("Extracted on:", "").strip()
+                # Skip the metadata lines and extract the actual content
+                extracted_content = "\n".join(lines[i+2:])
+                break
+        else:
+            # If we didn't find the metadata, just use the whole content
+            extracted_content = content
+        
+        # Create event data structure
+        event_data = {
+            "url": url,
+            "event_id": id,
+            "extracted_content": extracted_content,
+            "timestamp": timestamp
+        }
+        
+        return {
+            "status": "success",
+            "message": "Event details retrieved successfully",
+            "event_data": event_data
+        }
+    
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error retrieving event details: {str(e)}"
+        }
+
+@app.post("/groq-clean")
+async def create_summary(request: dict):
+    """Clean up event details and create a concise summary using Groq"""
+    try:
+        # Get the event ID from the request
+        event_id = request.get("eventId")
+        if not event_id:
+            return {
+                "status": "error",
+                "message": "Missing eventId parameter"
+            }
+        
+        # Ensure the event details directory exists
+        if not EVENT_DETAILS_DIR.exists():
+            return {
+                "status": "error",
+                "message": "Event details directory not found"
+            }
+        
+        # Construct the path to the event file
+        event_file_path = EVENT_DETAILS_DIR / f"{event_id}.txt"
+        
+        # Check if the file exists
+        if not event_file_path.exists():
+            return {
+                "status": "error",
+                "message": f"Event details file not found for ID: {event_id}"
+            }
+        
+        # Read the file content
+        with open(event_file_path, "r", encoding="utf-8") as f:
+            file_content = f.read()
+        
+        print(f"Creating summary for event {event_id}, content length: {len(file_content)} characters")
+        
+        # Call Groq to clean up the content and generate a summary
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that creates concise, engaging summaries of events."
+                },
+                {
+                    "role": "user",
+                    "content": f"Here is the raw content of an event description. Please clean it up and create a concise 15-second summary (about 50-60 words) that highlights the most important details: what the event is about, when and where it's happening, who's hosting it, and why someone might want to attend. Format it in a way that's easy to read and engaging:\n\n{file_content}"
+                }
+            ],
+            temperature=0.5,
+            max_tokens=300,
+        )
+        
+        # Extract the summary from the response
+        summary = completion.choices[0].message.content if completion.choices else "No summary available"
+        
+        print(f"Generated summary for event {event_id}: {summary[:100]}...")
+        
+        # Return the summary
+        return {
+            "status": "success",
+            "summary": summary,
+            "event_id": event_id
+        }
+    
+    except Exception as e:
+        import traceback
+        print(f"ERROR IN GROQ-CLEAN: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            "status": "error",
+            "message": f"Failed to clean event content: {str(e)}"
+        }
