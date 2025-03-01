@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://0.0.0.0:8000/api/:path*',
+        destination: 'https://event-sonar.fly.dev/api/:path*', // Update to match the actual URL
       },
     ];
   },

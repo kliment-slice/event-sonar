@@ -6,26 +6,15 @@ export async function GET(
 ) {
   try {
     const params = context.params;
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    // Update to match the actual backend URL
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://event-sonar.fly.dev'
     const endpoint = params.proxy.join('/')
     
     // Handle query parameters
     const searchParams = request.nextUrl.searchParams.toString();
     const queryString = searchParams ? `?${searchParams}` : '';
     
-    // Check if backend is available before making the request
-    try {
-      await fetch(`${backendUrl}/health-check`, { 
-        method: 'HEAD',
-        signal: AbortSignal.timeout(1000) 
-      });
-    } catch (error: any) {
-      console.warn(`Backend health check failed: ${error.message}`);
-      return NextResponse.json({ 
-        error: 'Backend service is not available',
-        details: `Failed to connect to ${backendUrl}. Please ensure the API server is running and accessible.`
-      }, { status: 503 });
-    }
+    // Skip health check for now as it might not exist
     
     const url = `${backendUrl}/${endpoint}${queryString}`
     
@@ -33,7 +22,7 @@ export async function GET(
     
     // Add timeout to prevent long-hanging requests
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // Increase timeout
     
     const response = await fetch(url, {
       method: 'GET',
@@ -42,6 +31,14 @@ export async function GET(
       },
       signal: controller.signal
     }).finally(() => clearTimeout(timeoutId));
+    
+    if (!response.ok) {
+      console.error(`Backend returned error status: ${response.status}`);
+      return NextResponse.json({ 
+        error: `Backend service returned ${response.status}`,
+        details: await response.text()
+      }, { status: response.status });
+    }
     
     const data = await response.json();
     return NextResponse.json(data);
@@ -55,7 +52,10 @@ export async function GET(
       }, { status: 503 });
     }
     
-    return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to fetch data',
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 500 });
   }
 }
 
@@ -65,22 +65,11 @@ export async function POST(
 ) {
   try {
     const params = context.params;
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    // Update to match the actual backend URL
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://event-sonar.fly.dev'
     const endpoint = params.proxy.join('/')
     
-    // Check if backend is available before making the request
-    try {
-      await fetch(`${backendUrl}/health-check`, { 
-        method: 'HEAD',
-        signal: AbortSignal.timeout(1000) 
-      });
-    } catch (error: any) {
-      console.warn(`Backend health check failed: ${error.message}`);
-      return NextResponse.json({ 
-        error: 'Backend service is not available',
-        details: `Failed to connect to ${backendUrl}. Please ensure the API server is running and accessible.`
-      }, { status: 503 });
-    }
+    // Skip health check for now as it might not exist
     
     const url = `${backendUrl}/${endpoint}`
     
@@ -88,7 +77,7 @@ export async function POST(
     
     // Add timeout to prevent long-hanging requests
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // Increase timeout
     
     // Check content type to handle different types of requests
     const contentType = request.headers.get('content-type') || '';
@@ -116,6 +105,14 @@ export async function POST(
       }).finally(() => clearTimeout(timeoutId));
     }
     
+    if (!response.ok) {
+      console.error(`Backend returned error status: ${response.status}`);
+      return NextResponse.json({ 
+        error: `Backend service returned ${response.status}`,
+        details: await response.text()
+      }, { status: response.status });
+    }
+    
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
@@ -128,6 +125,9 @@ export async function POST(
       }, { status: 503 });
     }
     
-    return NextResponse.json({ error: 'Failed to post data' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to post data',
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 500 });
   }
 }
