@@ -6,23 +6,22 @@ export async function GET(
 ) {
   try {
     const params = context.params;
-    // Update to match the actual backend URL
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://event-sonar.fly.dev'
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
     const endpoint = params.proxy.join('/')
     
     // Handle query parameters
     const searchParams = request.nextUrl.searchParams.toString();
     const queryString = searchParams ? `?${searchParams}` : '';
     
-    // Skip health check for now as it might not exist
-    
     const url = `${backendUrl}/${endpoint}${queryString}`
     
     console.log(`Proxying GET request to: ${url}`);
     
     // Add timeout to prevent long-hanging requests
+    // Use longer timeout for specific endpoints that need more time
+    const timeoutMs = endpoint.includes('toolhouse') ? 60000 : 15000;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // Increase timeout
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
     const response = await fetch(url, {
       method: 'GET',
@@ -52,6 +51,13 @@ export async function GET(
       }, { status: 503 });
     }
     
+    // Check if it's a timeout error
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json({ 
+        error: 'Request timed out. The backend operation is taking longer than expected but may still complete on the server.' 
+      }, { status: 504 });
+    }
+    
     return NextResponse.json({ 
       error: 'Failed to fetch data',
       details: error instanceof Error ? error.message : String(error)
@@ -65,19 +71,18 @@ export async function POST(
 ) {
   try {
     const params = context.params;
-    // Update to match the actual backend URL
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://event-sonar.fly.dev'
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
     const endpoint = params.proxy.join('/')
-    
-    // Skip health check for now as it might not exist
     
     const url = `${backendUrl}/${endpoint}`
     
     console.log(`Proxying POST request to: ${url}`);
     
     // Add timeout to prevent long-hanging requests
+    // Use longer timeout for specific endpoints that need more time
+    const timeoutMs = endpoint.includes('toolhouse') ? 60000 : 15000;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // Increase timeout
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
     // Check content type to handle different types of requests
     const contentType = request.headers.get('content-type') || '';
@@ -123,6 +128,13 @@ export async function POST(
       return NextResponse.json({ 
         error: 'Backend service is not available. Please check if the API server is running.' 
       }, { status: 503 });
+    }
+    
+    // Check if it's a timeout error
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json({ 
+        error: 'Request timed out. The backend operation is taking longer than expected but may still complete on the server.' 
+      }, { status: 504 });
     }
     
     return NextResponse.json({ 
