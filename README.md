@@ -13,12 +13,19 @@ Create yourself a virtualenv: `python3 -m venv venv`
 
 then enter the env
 
-`source venv/bin/activate`
+
+ `source venv/bin/activate for mac` or `venv\Scripts\activate for windows`
 
 
 then install requirements:
 
 `pip install fastapi uvicorn python-multipart httpx python-dotenv`
+
+install Tool house
+`pip install toolhouse`
+
+install BeautifulSoup
+`pip install beautifulsoup4`
 
 
 then run the backend server:

@@ -1,0 +1,9 @@
+ fastapi 
+ uvicorn 
+ python-multipart 
+ httpx 
+ python-dotenv
+ groq
+ toolhouse
+ bs4
+ pyht

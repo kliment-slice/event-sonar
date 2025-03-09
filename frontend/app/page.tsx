@@ -1,109 +1,72 @@
-"use client";
+'use client'
 
-import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
+import VibeCheckCard from '@/components/VibeCheckCard'
+import Armadillo from '@/components/Armadillo'
+import Confetti from '@/components/Confetti'
 
 export default function Home() {
-  const [response, setResponse] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeEndpoint, setActiveEndpoint] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
 
-  const callEndpoint1 = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      setActiveEndpoint("endpoint1");
-      
-      const res = await fetch("/api/test", {
-        method: "GET",
-        headers: {
-          "Accept": "application/json",
-        },
-      });
-      
-      if (!res.ok) {
-        throw new Error(`HTTP error! Status: ${res.status}`);
-      }
-      
-      const data = await res.json();
-      setResponse(data.message || JSON.stringify(data));
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Unknown error occurred");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Set isClient to true once component mounts
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
-  const callEndpoint2 = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      setActiveEndpoint("endpoint2");
-      
-      const res = await fetch("/api/toolhouse", {
-        method: "GET",
-        headers: {
-          "Accept": "application/json",
-        },
-      });
-      
-      if (!res.ok) {
-        throw new Error(`HTTP error! Status: ${res.status}`);
-      }
-      
-      const data = await res.json();
-      setResponse(data.message || JSON.stringify(data));
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Unknown error occurred");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Pre-calculated values for background particles to avoid hydration mismatch
+  const backgroundParticles = Array.from({ length: 8 }, (_, i) => ({
+    id: `bg-particle-${i}`,
+    width: 10 + (i * 2), // Deterministic size instead of random
+    height: 10 + (i * 2),
+    left: `${i * 12.5}%`,
+    top: `${(i % 4) * 25}%`,
+    duration: 10 + i * 2
+  }));
 
   return (
-    <div className="flex flex-col items-center p-8">
-      <h1 className="text-2xl font-bold mb-6">AITX Hack Diagram and API</h1>
-      
-      <div className="flex space-x-4 mb-4">
-        <button
-          onClick={callEndpoint1}
-          disabled={isLoading}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          {isLoading && activeEndpoint === "endpoint1" ? "Loading..." : "Endpoint 1"}
-        </button>
-        <button
-          onClick={callEndpoint2}
-          disabled={isLoading}
-          className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-        >
-          {isLoading && activeEndpoint === "endpoint2" ? "Loading..." : "Endpoint 2"}
-        </button>
-      </div>
-      
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-4 w-full max-w-md">
-          <p className="font-medium">Error: {error}</p>
+    <main 
+      className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden bg-gradient-to-b from-rose-400 via-amber-500 to-emerald-600"
+    >
+      {/* Animated background particles */}
+      {isClient && (
+        <div className="absolute inset-0 pointer-events-none">
+          {backgroundParticles.map((particle) => (
+            <motion.div
+              key={particle.id}
+              className="absolute rounded-full bg-amber-500 bg-opacity-15"
+              style={{
+                width: `${particle.width}px`,
+                height: `${particle.height}px`,
+                left: particle.left,
+                top: particle.top,
+              }}
+              animate={{
+                x: [0, 50, 0],
+                y: [0, 30, 0],
+              }}
+              transition={{
+                duration: particle.duration,
+                repeat: Infinity,
+                repeatType: "reverse"
+              }}
+            />
+          ))}
         </div>
       )}
       
-      {response && (
-        <div className="border text-black rounded-lg shadow-md p-6 mb-8 w-full max-w-md bg-gray-50">
-          <p className="whitespace-pre-wrap break-words">{response}</p>
-        </div>
-      )}
+      {/* Confetti component */}
+      <Confetti isClient={isClient} />
       
-      <div className="w-full max-w-4xl">
-        <Image
-          src="/aitx_hack.drawio.png"
-          alt="AITX Hack Diagram"
-          width={1200}
-          height={800}
-          priority
-          className="rounded-lg shadow-lg"
-        />
+      {/* Armadillo component */}
+      {/* <Armadillo isClient={isClient} /> */}
+      
+      {/* Main card */}
+      <VibeCheckCard />
+      
+      <div className="mt-8 text-base font-bold tracking-wide text-stone-800/80 animation-pulse">
+          <span>• Unofficial SXSW 2025 Vibe Checker •</span>
       </div>
-    </div>
-  );
+    </main>
+  )
 }

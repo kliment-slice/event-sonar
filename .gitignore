@@ -42,3 +42,5 @@ next-env.d.ts
 **/.next
 **/venv
 **/__pycache__
+/events
+/voice-input
